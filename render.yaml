@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: hn-ai-voice-studio-pro
+    runtime: python
+    region: singapore
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1 --proxy-headers --forwarded-allow-ips "*"
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.11"
+      - key: REQUIRE_ACCESS_KEY
+        value: "true"
+      - key: APP_ACCESS_KEY
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: MAX_UPLOAD_MB
+        value: "250"
+      - key: MAX_SECONDS
+        value: "900"
+      - key: RETENTION_SECONDS
+        value: "7200"
