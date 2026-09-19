@@ -68,7 +68,7 @@ Nếu không đặt APP_ACCESS_KEY, chế độ phát triển không yêu cầu 
 
 ## Render
 
-Dịch vụ hiện tại: [HN AI VOICE STUDIO PRO](https://hn-ai-voice-studio-pro.onrender.com/), workspace HoangNghia, Python web service tại Singapore, plan free, tự triển khai từ main. render.yaml mô tả cấu hình. APP_ACCESS_KEY và SESSION_SECRET nằm trong môi trường Render; không đặt mật khẩu trong source code hoặc build log.
+Dịch vụ hiện tại: [HN AI VOICE STUDIO PRO](https://hn-ai-voice-studio-pro.onrender.com/), workspace HoangNghia, Python web service tại Singapore, plan free, lấy mã từ main. Nếu dịch vụ dùng URL Git công khai và chưa liên kết Git provider với Render, cần gọi triển khai thủ công sau khi hợp nhất; kiểm tra commit của lượt triển khai trước khi xác nhận bản mới đã chạy. render.yaml mô tả cấu hình. APP_ACCESS_KEY và SESSION_SECRET nằm trong môi trường Render; không đặt mật khẩu trong source code hoặc build log.
 
 Sau triển khai cần kiểm tra /healthz, tải video bằng trình duyệt, nghe A/B và tải MP4 tại URL thật. Test CI thành công không thay thế kiểm thử trên Render.
 
