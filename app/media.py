@@ -79,7 +79,9 @@ def filter_audio(settings: dict, duration: float, audio_offset: float = 0) -> st
     if audio_offset < -0.001:
         chain.extend([f"atrim=start={-audio_offset:.6f}", "asetpts=PTS-STARTPTS"])
     if settings["highpass"]:
-        chain.append("highpass=f=80")
+        chain.append(f'highpass=f={settings["highpass_hz"]:.1f}')
+    if settings["lowpass_hz"] < 20000:
+        chain.append(f'lowpass=f={settings["lowpass_hz"]:.1f}')
     if settings["noise"] > 0:
         chain.append(f'afftdn=nr={settings["noise"]:.2f}:nf=-35:tn=1')
     semitones = settings["pitch"]
@@ -87,14 +89,23 @@ def filter_audio(settings: dict, duration: float, audio_offset: float = 0) -> st
         ratio = 2 ** (semitones / 12)
         # Resample changes pitch; inverse tempo keeps video/audio duration aligned.
         chain.extend([f"asetrate={round(48000 * ratio)}", "aresample=48000", f"atempo={1 / ratio:.8f}"])
-    for key, frequency in [("bass", 140), ("mid", 1200), ("treble", 6500)]:
+    if settings["gate"]:
+        chain.append(f'agate=threshold={10 ** (settings["gate_threshold"] / 20):.8f}:ratio=4:range=0.01:attack=3:release={settings["gate_release"]:.1f}')
+    if settings["deesser"] > 0:
+        chain.append(f'deesser=i={settings["deesser"] / 100:.3f}:m=0.6:f=0.5')
+    for key, frequency in [("bass", 140), ("lowmid", 400), ("mid", settings["mid_hz"]), ("presence", 3000), ("treble", 6500)]:
         gain = settings[key]
         if abs(gain) > 0.001:
-            chain.append(f"equalizer=f={frequency}:t=q:w=0.8:g={gain:.2f}")
+            q = settings["mid_q"] if key == "mid" else 0.8
+            chain.append(f"equalizer=f={frequency}:t=q:w={q}:g={gain:.2f}")
     if settings["compress"]:
-        chain.append("acompressor=threshold=0.125:ratio=3:attack=15:release=180:makeup=1.5")
+        chain.append(f'acompressor=threshold={10 ** (settings["threshold"] / 20):.8f}:ratio={settings["ratio"]:.2f}:attack={settings["attack"]:.1f}:release={settings["release"]:.1f}:makeup={10 ** (settings["makeup"] / 20):.6f}')
+    if settings["reverb"] > 0:
+        delays = "|".join(str(round(t * settings["room"])) for t in (13, 19, 29, 37, 53, 71, 89, 113))
+        decays = "|".join(f'{settings["reverb"] / 100 * w:.6f}' for w in (.22, .19, .16, .13, .10, .08, .07, .05))
+        chain.append(f'aecho=in_gain=1:out_gain=1:delays={delays}:decays={decays}')
     if settings["normalize"]:
-        chain.append("loudnorm=I=-16:TP=-1.5:LRA=11")
+        chain.append(f'loudnorm=I={settings["target_lufs"]:.1f}:TP={settings["ceiling"]:.1f}:LRA=11')
     if abs(settings["gain"]) > 0.001:
         chain.append(f'volume={settings["gain"]:.2f}dB')
     if audio_offset > 0.001:
@@ -103,7 +114,7 @@ def filter_audio(settings: dict, duration: float, audio_offset: float = 0) -> st
         fade = min(settings["fade"], duration / 2)
         chain.extend([f"afade=t=in:d={fade:.4f}", f"afade=t=out:st={duration-fade:.4f}:d={fade:.4f}"])
     # Pad processing tails only; never end the video early due to short audio.
-    chain.extend(["alimiter=limit=0.95:level=false:latency=true", "aresample=48000",
+    chain.extend([f'alimiter=limit={10 ** (settings["ceiling"] / 20):.6f}:level=false:latency=true', "aresample=48000",
                   "apad", f"atrim=duration={duration:.6f}", "asetpts=PTS-STARTPTS"])
     return ",".join(chain)
 
@@ -181,9 +192,24 @@ async def prepare(project: dict, job: dict):
         "-vf", "scale='min(1280,iw)':'min(720,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2,setsar=1,setpts=PTS-STARTPTS",
         "-af", ",".join(timing),
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "25", "-pix_fmt", "yuv420p",
+        "-g", "24", "-keyint_min", "24", "-sc_threshold", "0",
         "-threads", "2", "-c:a", "aac", "-b:a", "128k", "-t", str(duration),
         "-map_metadata", "-1", "-movflags", "+faststart", str(preview),
-    ], job, duration, folder / "prepare.log")
+    ], job, duration, folder / "prepare.log", span=94)
+    if meta["has_audio"]:
+        job["stage"] = "Đang tạo dạng sóng âm thanh"
+        raw = folder / "waveform.u8"
+        await run_ffmpeg([
+            *INPUT_FLAGS, "-i", str(preview), "-vn", "-ac", "1", "-ar", "2000",
+            "-f", "u8", "-t", str(duration), str(raw),
+        ], job, duration, folder / "waveform.log", base=94, span=6)
+        def peaks():
+            data = raw.read_bytes()  # bounded to 1.8 MB for a 15-minute video
+            stride = max(1, math.ceil(len(data) / 1200))
+            return [round(max(abs(v - 128) for v in data[i:i+stride]) / 128, 3)
+                    for i in range(0, len(data), stride)]
+        project["waveform"] = await asyncio.to_thread(peaks)
+        raw.unlink(missing_ok=True)
     project["state"] = "ready"
 
 

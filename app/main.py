@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 from . import media
+from .settings import DEFAULTS, LIMITS, editor_schema
 
 ROOT = Path(__file__).resolve().parent
 DATA = Path(os.getenv("DATA_DIR", "/tmp/hn-voice-studio")).resolve()
@@ -34,8 +35,6 @@ LOGIN_ATTEMPTS: dict[str, list[float]] = {}
 COOKIE = "hn_voice_session"
 ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 ACTIVE = {"uploading", "queued", "running"}
-DEFAULTS = {"pitch": 0.0, "noise": 8.0, "bass": 0.0, "mid": 0.0, "treble": 0.0,
-            "gain": 0.0, "fade": 0.0, "highpass": True, "compress": True, "normalize": True}
 
 
 def remove_project(project):
@@ -156,10 +155,10 @@ async def health():
 
 @app.get("/api/config")
 async def config():
-    return {"name": "HN AI VOICE STUDIO PRO", "version": "0.1.0",
+    return {"name": "HN AI VOICE STUDIO PRO", "version": "0.2.0",
             "max_upload_mb": MAX_UPLOAD // 1024 // 1024, "max_minutes": media.MAX_SECONDS // 60,
             "retention_seconds": TTL, "password_required": bool(ACCESS_KEY),
-            "defaults": DEFAULTS, "storage": "temporary-server",
+            "defaults": DEFAULTS, "controls": editor_schema(), "storage": "temporary-server",
             "ai_voice_conversion": False}
 
 
@@ -284,8 +283,7 @@ async def upload(request: Request):
 
 
 def validate_settings(data):
-    limits = {"pitch": (-12, 12), "noise": (0, 30), "bass": (-12, 12),
-              "mid": (-12, 12), "treble": (-12, 12), "gain": (-12, 12), "fade": (0, 3)}
+    limits = LIMITS
     settings = dict(DEFAULTS)
     if set(data) - set(DEFAULTS):
         raise HTTPException(422, "Có thông số chưa được hỗ trợ.")
@@ -361,6 +359,13 @@ async def serve_media(project_id: str, kind: str, request: Request, download: bo
     filename = f"{Path(project['name']).stem}-HN-VOICE.mp4" if download else None
     return FileResponse(path, media_type="video/mp4", filename=filename,
                         content_disposition_type="attachment" if download else "inline")
+
+
+@app.get("/api/projects/{project_id}/waveform")
+async def waveform(project_id: str, request: Request):
+    project = find_project(project_id, request)
+    return {"duration": (project.get("meta") or {}).get("duration", 0),
+            "peaks": project.get("waveform", [])}
 
 
 app.mount("/static", StaticFiles(directory=ROOT / "static"), name="static")

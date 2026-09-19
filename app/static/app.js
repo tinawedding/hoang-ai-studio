@@ -1,12 +1,13 @@
 "use strict";
+import { buildControls, StudioEditor } from "./studio-editor.js";
 const $ = (id) => document.getElementById(id);
-const numeric = ["pitch", "noise", "bass", "mid", "treble", "gain", "fade"];
-const toggles = ["highpass", "compress", "normalize"];
+let numeric = [];
+const toggles = ["highpass", "compress", "normalize", "gate"];
 let config, current = null, currentJob = null, uploading = null, watchVersion = 0, projects = [];
-let busy = false, activeMode = "preview", online = false;
+let busy = false, online = false;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const numberFormat = new Intl.NumberFormat("vi-VN", {maximumFractionDigits: 1});
-const units = {pitch: "st", noise: "dB", bass: "dB", mid: "dB", treble: "dB", gain: "dB", fade: "s"};
+let units = {}, paintFrame = 0, settingsHistory = [], historyIndex = -1;
 function duration(seconds) {
   const n = Math.max(0, Math.floor(seconds || 0));
   return Math.floor(n / 60) + ":" + String(n % 60).padStart(2, "0");
@@ -30,21 +31,42 @@ function dirty() { return !!current?.output && !sameSettings(settings(), current
 function paintValues() {
   numeric.forEach((key) => {
     const value = Number($(key).value);
-    $(key + "-value").textContent = numberFormat.format(value) + " " + units[key];
+    const label = numberFormat.format(value) + " " + units[key];
+    if ($(key + "-value").textContent !== label) $(key + "-value").textContent = label;
+    if (document.activeElement !== $(key + "-number")) $(key + "-number").value = value;
   });
+  studio.update(settings());
   paintActions();
 }
-function applySettings(value) {
+function applySettings(value, remember = true) {
+  value = {...config.defaults, ...value};
   numeric.forEach((key) => { $(key).value = value[key]; });
   toggles.forEach((key) => { $(key).checked = value[key]; });
   paintValues();
+  if (remember) rememberSettings();
+}
+function rememberSettings() {
+  const value = settings();
+  if (sameSettings(value, settingsHistory[historyIndex])) return;
+  settingsHistory = settingsHistory.slice(0, historyIndex + 1);
+  settingsHistory.push(value);
+  if (settingsHistory.length > 60) settingsHistory.shift();
+  historyIndex = settingsHistory.length - 1;
+  paintActions();
+}
+function undoSettings(direction) {
+  const index = historyIndex + direction;
+  if (index < 0 || index >= settingsHistory.length) return;
+  historyIndex = index; clearPreset(); applySettings(settingsHistory[index], false);
 }
 function clearPreset() {
   document.querySelectorAll(".preset").forEach((button) => button.classList.remove("selected"));
 }
 function paintActions() {
   const ready = current && ["ready", "done"].includes(current.state) && current.meta?.has_audio;
-  $("voice-controls").disabled = busy || !config;
+  $("voice-controls").disabled = !config || !!uploading;
+  $("undo-settings").disabled = historyIndex < 1;
+  $("redo-settings").disabled = historyIndex >= settingsHistory.length - 1;
   $("render-button").disabled = !ready || busy || !online;
   $("new-project").disabled = !!uploading;
   $("choose-file").disabled = !config || !online || !!uploading;
@@ -58,14 +80,14 @@ function paintActions() {
     link.removeAttribute("href");
     link.tabIndex = -1;
   }
-  $("compare-output").disabled = !current?.output || busy;
+  $("compare-output").disabled = !current?.output;
   $("compare-original").disabled = busy && !current?.meta;
   $("export-hint").textContent = busy ? "Máy chủ đang xử lý video của bạn"
     : !current ? "Chọn video để bắt đầu"
     : current.meta && !current.meta.has_audio ? "Video này không có âm thanh"
-    : dirty() ? "Thông số đã đổi. Xử lý lại để áp dụng."
+    : dirty() ? "Đang nghe thông số mới. Xuất lại để cập nhật MP4."
     : current.output ? "MP4 đã sẵn sàng để xem và tải về"
-    : "Thông số chỉ áp dụng sau khi bấm xử lý";
+    : "Nghe trực tiếp khi chỉnh · Bấm xuất khi hài lòng";
   $("step-1").className = "step " + (current?.meta ? "complete" : "current");
   $("step-2").className = "step " + (current?.meta && !current?.output ? "current" : current?.output ? "complete" : "");
   $("step-3").className = "step " + (current?.output ? "current" : "");
@@ -123,21 +145,15 @@ function updateMediaDetails() {
     : " · Đang đọc thông tin trên máy chủ");
   $("video-label").textContent = current.meta ? current.meta.video_codec.toUpperCase() + " · VIDEO" : "ĐANG CHUẨN BỊ";
 }
-function switchMedia(kind, resume = false) {
-  if (!current || (kind === "output" && !current.output)) return;
-  const player = $("video");
-  const seekTo = resume ? player.currentTime : 0;
-  const wasPlaying = resume && !player.paused;
-  activeMode = kind;
-  $("compare-original").classList.toggle("selected", kind === "preview");
-  $("compare-output").classList.toggle("selected", kind === "output");
-  $("playback-note").textContent = kind === "output" ? "Âm thanh đã xử lý" : "Âm thanh gốc";
-  const suffix = kind === "output" ? "?v=" + current.output.job_id : "";
-  player.src = "/api/projects/" + current.id + "/media/" + kind + suffix;
-  player.onloadedmetadata = () => {
-    if (seekTo) player.currentTime = Math.min(seekTo, Math.max(0, player.duration - .1));
-    if (wasPlaying) player.play().catch(() => {});
-  };
+function switchMedia(kind = "preview") {
+  if (!current) return;
+  if (kind === "output") { studio.openOutput(current, dirty()); return; }
+  const player = $("video"), src = "/api/projects/" + current.id + "/media/preview";
+  // One persistent source per project. Slider changes and A/B never reload it.
+  if (player.getAttribute("src") !== src) {
+    player.pause(); player.src = src; player.load();
+  }
+  studio.setProject(current);
   $("empty-preview").hidden = true;
   $("video-wrap").hidden = false;
   $("drop-zone").hidden = true;
@@ -159,7 +175,7 @@ async function selectProject(project) {
   if (current.output) {
     clearPreset();
     applySettings(current.output.settings);
-    switchMedia("output");
+    switchMedia("preview");
   } else if (current.meta && current.state !== "error") {
     switchMedia("preview");
   } else {
@@ -201,17 +217,18 @@ async function watchJob(jobId, version) {
         $("cancel-job").hidden = true;
         $("empty-preview").hidden = true;
         if (job.state === "done") {
-          switchMedia(job.kind === "render" ? "output" : "preview");
+          $("job-panel").hidden = true;
+          if (job.kind === "prepare") switchMedia("preview");
           notice(job.kind === "render" ? "MP4 đã được kiểm tra và sẵn sàng. Bạn có thể nghe so sánh rồi tải về."
-            : current.meta.has_audio ? "Video đã sẵn sàng. Chọn sắc thái và bấm xử lý giọng."
+            : current.meta.has_audio ? "Video đã sẵn sàng. Bấm phát rồi kéo thanh chỉnh để nghe ngay."
             : "Video phát được nhưng không có âm thanh để đổi giọng.", job.kind === "render" ? "success" : "");
         } else if (job.state === "error") {
           notice(job.error || "Xử lý chưa thành công. Hãy thử lại.", "error");
-          if (current.output) switchMedia("output");
+          if (current.output) switchMedia("preview");
           else if (current.meta && current.state === "ready") switchMedia("preview");
         } else {
           notice("Đã hủy lượt xử lý.");
-          if (current.output) switchMedia("output");
+          if (current.output) switchMedia("preview");
           else if (current.meta && current.state === "ready") switchMedia("preview");
         }
         paintActions(); await refreshProjects(); return;
@@ -233,6 +250,7 @@ async function watchJob(jobId, version) {
 function resetEditor() {
   watchVersion++;
   current = null; currentJob = null; busy = false;
+  studio.setProject(null);
   $("video").pause(); $("video").removeAttribute("src"); $("video").load();
   $("video-wrap").hidden = true; $("drop-zone").hidden = false;
   $("comparison").hidden = true; $("media-details").hidden = true;
@@ -297,7 +315,6 @@ async function beginRender() {
   if (!current || busy) return;
   notice();
   busy = true; paintActions();
-  $("video").pause();
   try {
     const data = await post("/api/projects/" + current.id + "/render", settings());
     watchVersion++;
@@ -324,21 +341,36 @@ $("drop-zone").addEventListener("drop", (event) => uploadFile(event.dataTransfer
 // Prevent browser navigation when a file lands just outside the upload area.
 window.addEventListener("dragover", (event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); });
 window.addEventListener("drop", (event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); });
-numeric.forEach((key) => $(key).addEventListener("input", () => { clearPreset(); paintValues(); }));
-toggles.forEach((key) => $(key).addEventListener("change", () => { clearPreset(); paintValues(); }));
+function bindEditControls() {
+  const edit = () => {
+    clearPreset();
+    if (!paintFrame) paintFrame = requestAnimationFrame(() => { paintFrame = 0; paintValues(); });
+  };
+  numeric.forEach((key) => {
+    $(key).addEventListener("input", edit);
+    $(key).addEventListener("change", () => { paintValues(); rememberSettings(); });
+  });
+  toggles.forEach((key) => $(key).addEventListener("change", () => { edit(); rememberSettings(); }));
+}
 document.querySelectorAll("[data-preset]").forEach((button) => button.addEventListener("click", () => {
   const presets = {
     clean: {...config.defaults, mid: 1.5, treble: 1},
     deep: {...config.defaults, pitch: -3, bass: 3, mid: .5, treble: -1},
     bright: {...config.defaults, pitch: 3, bass: -1.5, mid: 1, treble: 2},
-    original: {...config.defaults, pitch: 0, noise: 0, highpass: false, compress: false, normalize: false},
+    original: {...config.defaults, pitch: 0, noise: 0, highpass: false, compress: false, normalize: false, gate: false},
   };
   clearPreset(); button.classList.add("selected"); applySettings(presets[button.dataset.preset]);
 }));
 $("reset-settings").addEventListener("click", () => { clearPreset(); applySettings(config.defaults); });
 $("render-button").addEventListener("click", beginRender);
-$("compare-original").addEventListener("click", () => switchMedia("preview", true));
-$("compare-output").addEventListener("click", () => switchMedia("output", true));
+
+$("compare-output").addEventListener("click", () => studio.openOutput(current, dirty()));
+$("undo-settings").addEventListener("click", () => undoSettings(-1));
+$("redo-settings").addEventListener("click", () => undoSettings(1));
+document.addEventListener("keydown", (event) => {
+  if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "z" || document.querySelector("dialog[open]") || (event.target.tagName === "INPUT" && event.target.type !== "range")) return;
+  event.preventDefault(); undoSettings(event.shiftKey ? 1 : -1);
+});
 $("cancel-job").addEventListener("click", async () => {
   if (uploading) { uploading.abort(); return; }
   if (!currentJob) return;
@@ -372,6 +404,9 @@ window.addEventListener("beforeunload", (event) => { if (uploading) event.preven
 async function init() {
   try {
     config = await api("/api/config");
+    numeric = config.controls.map((item) => item.id);
+    units = Object.fromEntries(config.controls.map((item) => [item.id, item.unit]));
+    buildControls(config); bindEditControls();
     await api("/healthz");
     online = true;
     $("server-dot").className = "dot online";
@@ -393,4 +428,5 @@ async function init() {
   }
   paintActions();
 }
+const studio = new StudioEditor(showError);
 init();

@@ -24,7 +24,7 @@ jobs:
       - name: Install browser
         run: python -m playwright install --with-deps chromium
       - name: Verify browser upload, rendering, download and layout
-        run: python -m pytest tests/test_browser.py -v --junitxml=test-artifacts/browser.xml
+        run: python -m pytest tests/test_browser.py -v -s --junitxml=test-artifacts/browser.xml
       - name: Retain test MP4s, screenshots and evidence
         if: always()
         uses: actions/upload-artifact@v4

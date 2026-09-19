@@ -9,7 +9,7 @@ import imageio_ffmpeg
 FFMPEG = imageio_ffmpeg.get_ffmpeg_exe()
 
 
-def make_video(path: Path, seconds=4, audio=True, delay=0):
+def make_video(path: Path, seconds=4, audio=True, delay=0, volume_db=0):
     args = [FFMPEG, "-hide_banner", "-loglevel", "error", "-y",
             "-f", "lavfi", "-i", f"testsrc2=size=320x180:rate=25:duration={seconds}"]
     if audio:
@@ -19,6 +19,8 @@ def make_video(path: Path, seconds=4, audio=True, delay=0):
     args += ["-map", "0:v:0"]
     if audio:
         args += ["-map", "1:a:0"]
+        if volume_db:
+            args += ["-af", f"volume={volume_db}dB"]
     # FFV1/PCM in MKV intentionally exercises an input browsers do not play natively.
     args += (["-c:v", "ffv1", "-c:a", "pcm_s16le"] if path.suffix == ".mkv"
              else ["-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac"])

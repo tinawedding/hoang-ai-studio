@@ -1,0 +1,5 @@
+SoundTouchJS audio-worklet 2.1.1 by Steve Cutter Blades, MPL-2.0.
+Source: https://github.com/cutterbl/SoundTouchJS
+Package: https://registry.npmjs.org/@soundtouchjs/audio-worklet/-/audio-worklet-2.1.1.tgz
+Local change: reset message clears buffered audio after a video seek.
+This directory includes the unminified distributed JavaScript and its processor source map.
