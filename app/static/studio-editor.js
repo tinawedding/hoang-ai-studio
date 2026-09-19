@@ -115,6 +115,11 @@ export class StudioEditor {
     });
     this.resize = new ResizeObserver(() => { this.drawWave(); this.drawEQ(); });
     this.resize.observe($('timeline')); this.resize.observe($('controls-panel') || document.querySelector('.controls-panel'));
+    this.previewResize = new ResizeObserver(() => {
+      const height = this.project ? document.querySelector('.editor-panel').getBoundingClientRect().height : 0;
+      document.documentElement.style.setProperty('--preview-height', `${Math.ceil(height)}px`);
+    });
+    this.previewResize.observe(document.querySelector('.editor-panel'));
     window.addEventListener('resize', () => { this.drawWave(); this.drawEQ(); });
     document.addEventListener('visibilitychange', () => { if (!document.hidden && !this.video.paused) this.animate(); });
   }

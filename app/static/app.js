@@ -217,6 +217,7 @@ async function watchJob(jobId, version) {
         $("cancel-job").hidden = true;
         $("empty-preview").hidden = true;
         if (job.state === "done") {
+          $("job-panel").hidden = true;
           if (job.kind === "prepare") switchMedia("preview");
           notice(job.kind === "render" ? "MP4 đã được kiểm tra và sẵn sàng. Bạn có thể nghe so sánh rồi tải về."
             : current.meta.has_audio ? "Video đã sẵn sàng. Bấm phát rồi kéo thanh chỉnh để nghe ngay."

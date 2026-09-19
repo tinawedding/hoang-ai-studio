@@ -1,3 +1,4 @@
+import base64
 import json
 import os
 import socket
@@ -186,6 +187,7 @@ def test_live_pitch_continuous_controls_and_mobile_preview(server):
             beforeMetrics:before, afterMetrics:window.__pitchNode.metrics,
             peak:document.querySelector('#peak-value').textContent};
         }""")
+        print("LIVE_PERFORMANCE=" + json.dumps(measurement))
         assert measurement["events"]["loadstart"] == 0 and measurement["events"]["emptied"] == 0
         assert measurement["sameSource"] and not measurement["paused"]
         assert measurement["advanced"] > 2, measurement
@@ -201,6 +203,7 @@ def test_live_pitch_continuous_controls_and_mobile_preview(server):
         assert page.locator("#video").get_attribute("src") == source
         assert not page.locator("#video").evaluate("v => v.paused")
         page.screenshot(path=str(ARTIFACTS / "studio-live-eq.png"), full_page=True)
+        print("STUDIO_DESKTOP_JPEG=" + base64.b64encode(page.screenshot(type="jpeg", quality=65)).decode())
         page.locator('[data-group="dynamics"]').click()
         page.screenshot(path=str(ARTIFACTS / "studio-live-dynamics.png"), full_page=True)
         page.locator('[data-group="space"]').click()
@@ -237,7 +240,13 @@ def test_live_pitch_continuous_controls_and_mobile_preview(server):
         assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), "Mobile overflow"
         page.screenshot(path=str(ARTIFACTS / "studio-live-mobile.png"), full_page=True)
         page.screenshot(path=str(ARTIFACTS / "studio-live-mobile-viewport.png"))
+        print("STUDIO_MOBILE_JPEG=" + base64.b64encode(page.screenshot(type="jpeg", quality=75)).decode())
         box = page.locator("#noise").bounding_box()
+        target = page.evaluate("""() => {
+          const r = document.querySelector('#noise').getBoundingClientRect();
+          return document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.id;
+        }""")
+        assert target == "noise", {"covered_by":target, "slider_bounds":box, "video_bounds":bounds}
         page.mouse.move(box["x"] + 10, box["y"] + box["height"]/2)
         page.mouse.down()
         page.mouse.move(box["x"] + box["width"] - 5, box["y"] + box["height"]/2, steps=25)

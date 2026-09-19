@@ -12,6 +12,7 @@ dialog{border:1px solid #5b4d33;background:#1e1f18;color:var(--text);border-radi
 @media(prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;transition:none!important;scroll-behavior:auto!important}}
 
 /* Studio v0.2: a steady preview beside independent, compact controls. */
+@media(max-width:780px){html{scroll-padding-top:calc(var(--preview-height,0px) + 12px)}.controls-panel input,.control-tabs button{scroll-margin-top:12px}}
 main{max-width:1700px;padding-top:24px}.topbar{height:70px}.page-heading h1{font-size:28px}.steps{margin:22px 0 20px;padding-bottom:18px}
 .studio-grid{grid-template-columns:minmax(0,1fr) 400px;gap:26px}.editor-panel{position:sticky;top:16px}.controls-panel{max-height:calc(100dvh - 100px);overflow-y:auto;scrollbar-width:thin;scrollbar-color:#655334 #1b1c17;padding:18px 20px 0}.video-wrap{aspect-ratio:16/9;max-height:50dvh}.video-wrap:fullscreen{max-height:none;height:100dvh;border:0}.video-wrap video{max-height:100%;cursor:pointer}.drop-zone{min-height:360px}.media-details{padding:10px 0}.file-info strong{max-width:100%;font-size:11px}.file-info span:not(.file-icon){font-size:9px}.panel-title{height:30px}
 .control-block{padding-top:12px;margin-bottom:12px}.preset-grid{gap:6px}.preset{padding:10px;min-height:57px}.preset>span{float:left;margin:0 9px 0 0;font-size:23px}.preset small{font-size:9px}.edit-actions{display:flex;align-items:center;gap:7px;margin:14px 0}.edit-actions .button{font-size:10px;padding:6px 8px;min-height:32px}.edit-actions .text-button{margin-left:auto}
