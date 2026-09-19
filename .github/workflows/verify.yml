@@ -1,0 +1,34 @@
+name: Verify real MP4 pipeline
+on:
+  push:
+    branches: [main, "codex/**"]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  media-and-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Verify Python syntax
+        run: python -m compileall -q app tests
+      - name: Process real videos and verify output
+        run: python -m pytest tests/test_pipeline.py -v --junitxml=test-artifacts/pipeline.xml
+      - name: Install browser
+        run: python -m playwright install --with-deps chromium
+      - name: Verify browser upload, rendering, download and layout
+        run: python -m pytest tests/test_browser.py -v --junitxml=test-artifacts/browser.xml
+      - name: Retain test MP4s, screenshots and evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hn-voice-verification
+          path: test-artifacts/
+          retention-days: 7
