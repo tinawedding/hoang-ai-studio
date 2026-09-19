@@ -50,6 +50,16 @@ def server(tmp_path_factory):
                 process.wait(timeout=5)
 
 
+def wait_for_js(page, expression, timeout=10000):
+    # Poll through the automation protocol without enabling unsafe-eval in the app.
+    deadline = time.monotonic() + timeout / 1000
+    while time.monotonic() < deadline:
+        if page.evaluate(expression):
+            return
+        time.sleep(.08)
+    pytest.fail(f"Browser condition timed out: {expression}")
+
+
 def test_browser_upload_render_download_and_layout(server):
     url, folder = server
     video = make_video(folder / "browser-video.mkv", seconds=4)
@@ -127,7 +137,7 @@ def test_live_pitch_continuous_controls_and_mobile_preview(server):
         expect(page.locator("#render-button")).to_be_enabled(timeout=90000)
         page.locator("#play-button").click()
         expect(page.locator("#live-state")).to_have_attribute("data-state", "live", timeout=15000)
-        page.wait_for_function("document.querySelector('#video').currentTime > 1")
+        wait_for_js(page, "document.querySelector('#video').currentTime > 1")
         # Measure audible pitch from the real worklet graph, not a displayed value.
         page.locator("#pitch").fill("12")
         page.locator("#pitch").dispatch_event("input")
@@ -146,12 +156,12 @@ def test_live_pitch_continuous_controls_and_mobile_preview(server):
             return peak * ctx.sampleRate / 8192;
           };
         }""")
-        page.wait_for_function("Math.abs(window.__pitchFrequency() - 880) < 20", timeout=10000)
+        wait_for_js(page, "Math.abs(window.__pitchFrequency() - 880) < 20", timeout=10000)
         pitch_hz = page.evaluate("window.__pitchFrequency()")
         page.locator("#pitch").fill("0")
         page.locator("#pitch").dispatch_event("input")
         page.locator("#pitch").dispatch_event("change")
-        page.wait_for_function("Math.abs(window.__pitchFrequency() - 440) < 15", timeout=10000)
+        wait_for_js(page, "Math.abs(window.__pitchFrequency() - 440) < 15", timeout=10000)
         page.locator('[data-group="eq"]').click()
         measurement = page.evaluate("""async () => {
           const video = document.querySelector('#video'), events = {loadstart:0,emptied:0,waiting:0};
@@ -207,7 +217,7 @@ def test_live_pitch_continuous_controls_and_mobile_preview(server):
         page.locator("#seek").fill("7.25")
         page.locator("#seek").dispatch_event("input")
         page.locator("#seek").dispatch_event("change")
-        page.wait_for_function("Math.abs(document.querySelector('#video').currentTime - 7.25) < .05")
+        wait_for_js(page, "Math.abs(document.querySelector('#video').currentTime - 7.25) < .05")
         page.locator("#mark-in").click()
         page.locator("#seek").fill("9.25")
         page.locator("#seek").dispatch_event("input")
@@ -216,7 +226,7 @@ def test_live_pitch_continuous_controls_and_mobile_preview(server):
         page.locator("#loop-button").click()
         expect(page.locator("#loop-button")).to_have_attribute("aria-pressed", "true")
         page.locator("#play-button").click()
-        page.wait_for_function("document.querySelector('#video').currentTime < 9")
+        wait_for_js(page, "document.querySelector('#video').currentTime < 9")
         page.locator("#loop-button").click()
         # Mobile preview stays visible while the settings panel is scrolled.
         page.set_viewport_size({"width": 390, "height": 844})
