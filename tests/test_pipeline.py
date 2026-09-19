@@ -75,6 +75,11 @@ def test_real_upload_pitch_export_download(client, video):
     partial = client.get(f"/api/projects/{project_id}/media/preview", headers={"Range": "bytes=0-255"})
     assert partial.status_code == 206 and len(partial.content) == 256
     assert partial.headers["cache-control"] == "no-store"
+    waveform = client.get(f"/api/projects/{project_id}/waveform").json()
+    assert abs(waveform["duration"] - 4) < .1
+    assert 500 <= len(waveform["peaks"]) <= 1200
+    assert all(0 <= value <= 1 for value in waveform["peaks"])
+    assert max(waveform["peaks"]) > .05
     rendered = client.post(f"/api/projects/{project_id}/render", json=plain(pitch=12))
     assert rendered.status_code == 202, rendered.text
     data = wait(client, rendered.json()["job"]["id"])
@@ -162,6 +167,7 @@ def test_access_validation_and_cancellation(client, video):
     assert client.get(f"/api/projects/{pid}").status_code == 404
     assert client.get(f"/api/jobs/{job_id}").status_code == 404
     assert client.get(f"/api/projects/{pid}/media/preview").status_code == 404
+    assert client.get(f"/api/projects/{pid}/waveform").status_code == 404
     client.cookies.clear()
     client.cookies.set("hn_voice_session", cookie)
     data = wait(client, job_id)
@@ -169,6 +175,8 @@ def test_access_validation_and_cancellation(client, video):
     assert client.post(f"/api/projects/{pid}/render", json={"pitch": 999}).status_code == 422
     assert client.post(f"/api/projects/{pid}/render", json={"pitch": "0; echo x"}).status_code == 422
     assert client.post(f"/api/projects/{pid}/render", json={"unknown": 1}).status_code == 422
+    for invalid in [{"mid_q": 0}, {"gate_threshold": -99}, {"ceiling": 1}, {"room": 3}, {"deesser": True}, {"target_lufs": -5}]:
+        assert client.post(f"/api/projects/{pid}/render", json=invalid).status_code == 422
     assert client.post(f"/api/projects/{pid}/render", json=plain(),
                        headers={"Origin": "https://elsewhere.invalid"}).status_code == 403
     assert client.post("/api/projects", content=b"x", headers={
@@ -180,4 +188,39 @@ def test_access_validation_and_cancellation(client, video):
     done = wait(client, next_id)
     assert done["job"]["state"] == "cancelled"
     assert client.get(f"/api/projects/{pid}/media/output").status_code == 404
+    client.delete(f"/api/projects/{pid}")
+
+
+def test_advanced_voice_chain_and_gate_are_audible(client, video, tmp_path):
+    """Decode the new complete chain; verify Gate suppresses sound, not just a UI value."""
+    pid = wait(client, upload(client, video)["job"]["id"])["project"]["id"]
+    config = client.get("/api/config").json()
+    assert len(config["controls"]) == 25
+    effect = {**config["defaults"], "pitch": 3, "deesser": 40, "lowpass_hz": 14000,
+              "lowmid": -2, "mid": 2, "mid_hz": 1600, "mid_q": 1.2, "presence": 1,
+              "threshold": -24, "ratio": 4, "attack": 8, "release": 250, "makeup": 2,
+              "gate": True, "gate_threshold": -50, "gate_release": 120,
+              "reverb": 30, "room": 1.8, "ceiling": -3, "target_lufs": -18, "fade": .2}
+    rendered = client.post(f"/api/projects/{pid}/render", json=effect)
+    data = wait(client, rendered.json()["job"]["id"])
+    assert data["job"]["state"] == "done", data
+    path = ARTIFACTS / "advanced-studio.mp4"
+    path.write_bytes(client.get(f"/api/projects/{pid}/media/output").content)
+    sound = samples(path)
+    meta = inspect_video(path)
+    assert meta["video"] == "h264" and meta["audio"] == "aac"
+    assert abs(meta["duration"] - 4) < .15
+    assert 510 < frequency(sound) < 535
+    assert .015 < rms(sound, 1, 3) < .5
+    assert max(abs(x) for x in sound) / 32768 < .78  # -3 dB ceiling with AAC tolerance
+    client.delete(f"/api/projects/{pid}")
+    quiet_input = make_video(tmp_path / "quiet.mkv", volume_db=-24)
+    assert rms(samples(quiet_input), 1, 3) > .004
+    pid = wait(client, upload(client, quiet_input)["job"]["id"])["project"]["id"]
+    quiet = {**plain(), "gate": True, "gate_threshold": -20, "gate_release": 50}
+    response = client.post(f"/api/projects/{pid}/render", json=quiet)
+    assert wait(client, response.json()["job"]["id"])["job"]["state"] == "done"
+    path = ARTIFACTS / "gate-suppression.mp4"
+    path.write_bytes(client.get(f"/api/projects/{pid}/media/output").content)
+    assert rms(samples(path), 1, 3) < .0004
     client.delete(f"/api/projects/{pid}")
