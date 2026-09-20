@@ -10,7 +10,7 @@ from app import media
 from app.main import PROJECTS
 from app.settings import DEFAULTS
 from tests.test_pipeline import video, upload, wait, plain, ARTIFACTS
-from tests.fixtures import samples, rms, inspect_video
+from tests.fixtures import samples, rms, inspect_video, make_video
 
 
 def process(tmp_path, signal, settings, name):
@@ -63,25 +63,27 @@ def test_independent_formant_moves_envelope_without_moving_harmonics(tmp_path):
     assert high-low>50,(low,high)
 
 
-def test_plus_hq_analysis_cache_and_real_export(client, video):
+def test_plus_hq_analysis_cache_and_real_export(client, tmp_path):
+    video=make_video(tmp_path/'plus-timing.mkv',seconds=6)
     p=wait(client,upload(client,video)['job']['id'])['project'];pid=p['id']
     analyzed=wait(client,client.post(f'/api/projects/{pid}/analyze').json()['job']['id'])
     assert analyzed['job']['state']=='done',analyzed
     assert -30<analyzed['project']['analysis']['rms_db']<-15
-    effect={**DEFAULTS,**plain(),"pitch":2,"formant":-1,"ai_noise":35,"declick":25,
-            "plosive":30,"auto_level":40,"harshness":40,"warmth":30,
-            "reverb":15,"predelay":35,"decay":.8,"damping":4500,"reverb_duck":60}
-    response=client.post(f'/api/projects/{pid}/audition',json={"settings":effect,"start":0})
+    effect={**DEFAULTS,"pitch":-2,"formant":-.5,"ai_noise":25,"noise":0,"declick":15,
+            "plosive":25,"auto_level":35,"harshness":30,"warmth":25,
+            "reverb":12,"decay":.8}
+    response=client.post(f'/api/projects/{pid}/audition',json={"settings":effect,"start":1})
     assert response.status_code==202,response.text
     data=wait(client,response.json()['job']['id']);assert data['job']['state']=='done',data
     folder=Path(PROJECTS[pid]['folder']);cache=(folder/'master.flac').stat().st_mtime_ns
     ai_cache=(folder/'rnnoise.flac').stat().st_mtime_ns
+    assert len(samples(folder/'master.flac'))==6*48000,'Master must retain every sample of the video duration'
     levels=[]
     for kind in ('hq-a','hq-b'):
         result=client.get(f'/api/projects/{pid}/media/{kind}');assert result.status_code==200
         path=ARTIFACTS/f'{kind}.wav';path.write_bytes(result.content)
-        values=samples(path);levels.append(rms(values,0,4))
-        assert 190000<len(values)<194000
+        values=samples(path);levels.append(rms(values,0,5))
+        assert len(values)==5*48000,'Non-zero HQ start must produce the exact requested interval'
         assert client.get(f'/api/projects/{pid}/media/{kind}',headers={'Range':'bytes=0-255'}).status_code==206
     assert abs(20*np.log10(levels[0]/levels[1]))<.15,levels
     data=wait(client,client.post(f'/api/projects/{pid}/render',json=effect).json()['job']['id'])
@@ -89,7 +91,14 @@ def test_plus_hq_analysis_cache_and_real_export(client, video):
     assert (folder/'master.flac').stat().st_mtime_ns==cache,'HQ and export must reuse identical master'
     path=ARTIFACTS/'plus-complete-chain.mp4';path.write_bytes(client.get(f'/api/projects/{pid}/media/output').content)
     info=inspect_video(path);assert info['video']=='h264' and info['audio']=='aac'
-    assert abs(info['duration']-4)<.1
+    assert abs(info['duration']-6)<.1
+    # A final AAC frame may add up to 1023 samples of padding; no missing tail
+    # is allowed. The container duration must also describe the complete track.
+    assert 6*48000 <= len(samples(path)) < 6*48000+1024
+    import av
+    with av.open(str(path)) as container:
+        audio=container.streams.audio[0]
+        assert abs(float(audio.duration*audio.time_base)-6)<.03
     assert abs(info['video_start']-info['audio_start'])<.05
     # AI weights are not rerun when a downstream control changes.
     effect['warmth']=40

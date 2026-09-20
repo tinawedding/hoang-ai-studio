@@ -55,6 +55,7 @@ def probe(path: Path) -> dict:
         return {
             "duration": round(duration, 3), "width": width, "height": height,
             "audio_offset": round(audio_start - video_start, 6),
+            "audio_duration": float(audio.duration * audio.time_base) if audio and audio.duration and audio.time_base else None,
             "fps": round(fps, 3), "video_codec": video.codec_context.name,
             "has_audio": bool(container.streams.audio),
             "audio_codec": container.streams.audio[0].codec_context.name if container.streams.audio else None,
@@ -251,7 +252,8 @@ async def render(project: dict, job: dict, settings: dict):
     try:
         result = await asyncio.to_thread(probe, pending)
         if (result["video_codec"] != "h264" or result["audio_codec"] != "aac"
-                or abs(result["duration"] - duration) > max(0.25, 2 / (project["meta"]["fps"] or 25))):
+                or abs(result["duration"] - duration) > max(0.25, 2 / (project["meta"]["fps"] or 25))
+                or result["audio_duration"] is None or abs(result["audio_duration"] - duration) > .05):
             raise MediaError("File xuất không đạt kiểm tra hình, tiếng hoặc thời lượng.")
         if job.get("cancel"):
             raise Cancelled()

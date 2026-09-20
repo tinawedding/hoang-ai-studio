@@ -136,12 +136,15 @@ async def master(project, job, settings):
     tail = []
     if settings["normalize"]:
         tail.append(f'loudnorm=I={settings["target_lufs"]}:TP={settings["ceiling"]}:LRA=11')
+    # Some loudnorm flush frames contain discontinuous timestamps despite a
+    # continuous PCM stream. Reclock by samples before fades and duration trim.
+    tail += ["aresample=48000", "asetpts=N/SR/TB"]
     tail.append(f'volume={settings["gain"]}dB')
     if settings["fade"]:
         fade = min(settings["fade"], duration/2)
         tail += [f"afade=t=in:d={fade}", f"afade=t=out:st={duration-fade}:d={fade}"]
     tail += [f'alimiter=limit={10**(settings["ceiling"]/20):.6f}:level=false:latency=true',
-             "aresample=48000", "apad", f"atrim=duration={duration}", "asetpts=PTS-STARTPTS"]
+             "aresample=48000", "asetpts=N/SR/TB", "apad", f"atrim=end_sample={round(duration*48000)}", "asetpts=N/SR/TB"]
     graph.append("[mixed]" + ",".join(tail) + "[out]")
     pending = folder / "master.part.flac"
     job["stage"] = "Đang hoàn thiện giọng · Auto Level / Formant / EQ / Không gian"

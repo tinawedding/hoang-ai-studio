@@ -1,4 +1,10 @@
-# HN AI VOICE STUDIO PRO
+# HN AI VOICE STUDIO PRO PLUS
+
+**Bản mới v0.3 PLUS:** https://hn-ai-voice-studio-plus.onrender.com/
+
+**Bản cũ v0.2 giữ nguyên:** https://hn-ai-voice-studio-pro.onrender.com/
+
+Nhánh `release/studio-plus` chỉ dùng cho dịch vụ PLUS riêng. Tính năng, bộ xử lý và giới hạn mới được mô tả trong [PLUS.md](PLUS.md). Có 39 thanh chỉnh, khử nhiễu RNNoise, Formant, Auto Level, Dynamic EQ, vang phòng và nghe HQ 10 giây dùng đúng âm thanh xuất. Phần dưới ghi lại nền tảng v0.2 được kế thừa.
 
 Ứng dụng web tiếng Việt, giao diện đen vàng, ưu tiên **tải video → xử lý âm thanh → xuất MP4 thật**.
 
@@ -43,6 +49,7 @@ Python 3.11+:
 
 ~~~bash
 pip install -r requirements.txt
+python scripts/fetch_model.py
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
 ~~~
 
@@ -68,7 +75,7 @@ Nếu không đặt APP_ACCESS_KEY, chế độ phát triển không yêu cầu 
 
 ## Render
 
-Dịch vụ hiện tại: [HN AI VOICE STUDIO PRO](https://hn-ai-voice-studio-pro.onrender.com/), workspace HoangNghia, Python web service tại Singapore, plan free, lấy mã từ main. Nếu dịch vụ dùng URL Git công khai và chưa liên kết Git provider với Render, cần gọi triển khai thủ công sau khi hợp nhất; kiểm tra commit của lượt triển khai trước khi xác nhận bản mới đã chạy. render.yaml mô tả cấu hình. APP_ACCESS_KEY và SESSION_SECRET nằm trong môi trường Render; không đặt mật khẩu trong source code hoặc build log.
+Dịch vụ cũ cần giữ nguyên: [HN AI VOICE STUDIO PRO](https://hn-ai-voice-studio-pro.onrender.com/), workspace HoangNghia, Python web service tại Singapore, plan free, lấy mã từ main. Nếu dịch vụ dùng URL Git công khai và chưa liên kết Git provider với Render, cần gọi triển khai thủ công sau khi hợp nhất; kiểm tra commit của lượt triển khai trước khi xác nhận bản mới đã chạy. render.yaml trong nhánh PLUS mô tả dịch vụ mới riêng, không dùng để cập nhật dịch vụ cũ. APP_ACCESS_KEY và SESSION_SECRET nằm trong môi trường Render; không đặt mật khẩu trong source code hoặc build log.
 
 Sau triển khai cần kiểm tra /healthz, tải video bằng trình duyệt, nghe A/B và tải MP4 tại URL thật. Test CI thành công không thay thế kiểm thử trên Render.
 
@@ -76,7 +83,8 @@ Sau triển khai cần kiểm tra /healthz, tải video bằng trình duyệt, n
 
 ~~~bash
 pip install -r requirements-dev.txt
-python -m pytest tests/test_pipeline.py -v
+python scripts/fetch_model.py
+python -m pytest tests/test_pipeline.py tests/test_plus.py -v
 python -m playwright install chromium
 python -m pytest tests/test_browser.py -v
 ~~~
