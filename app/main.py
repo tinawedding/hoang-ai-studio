@@ -23,6 +23,7 @@ from . import media, mastering
 from .settings import DEFAULTS, LIMITS, editor_schema
 
 ROOT = Path(__file__).resolve().parent
+VERSION = "0.3.1-plus"
 DATA = Path(os.getenv("DATA_DIR", "/tmp/hn-voice-studio")).resolve()
 MAX_UPLOAD = int(os.getenv("MAX_UPLOAD_MB", "250")) * 1024 * 1024
 TTL = int(os.getenv("RETENTION_SECONDS", "7200"))
@@ -154,12 +155,12 @@ async def index():
 
 @app.get("/healthz")
 async def health():
-    return {"status": "ok", "version": "0.3.0-plus", "engine": "ffmpeg-rnnoise-rubberband", "ai_voice_conversion": False}
+    return {"status": "ok", "version": VERSION, "engine": "ffmpeg-rnnoise-rubberband", "ai_voice_conversion": False}
 
 
 @app.get("/api/config")
 async def config():
-    return {"name": "HN AI VOICE STUDIO PRO PLUS", "version": "0.3.0-plus",
+    return {"name": "HN AI VOICE STUDIO PRO PLUS", "version": VERSION,
             "max_upload_mb": MAX_UPLOAD // 1024 // 1024, "max_minutes": media.MAX_SECONDS // 60,
             "retention_seconds": TTL, "password_required": bool(ACCESS_KEY),
             "defaults": DEFAULTS, "controls": editor_schema(), "storage": "temporary-server",

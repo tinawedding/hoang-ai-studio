@@ -1,4 +1,10 @@
-# HN AI VOICE STUDIO PRO PLUS · 0.3
+# HN AI VOICE STUDIO PRO PLUS · 0.3.1
+
+0.3.1 corrects discontinuous timestamps from loudness-normalization flush frames.
+The master clock now follows decoded samples before fades and the final trim.
+The six-second regression fixture retains exactly 288,000 master samples and its
+HQ excerpt from second one retains exactly 240,000 samples. MP4 validation also
+checks the audio stream duration separately from video duration.
 
 This is a separate edition. The original `main` branch and
 https://hn-ai-voice-studio-pro.onrender.com remain on v0.2.
