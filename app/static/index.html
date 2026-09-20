@@ -4,10 +4,10 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#11110f">
 <meta name="description" content="HN AI Voice Studio Pro — xử lý giọng trong video và xuất MP4 trực tuyến.">
-<title>HN AI VOICE STUDIO PRO</title>
+<title>HN AI VOICE STUDIO PRO PLUS</title>
 <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="/static/style.css?v=0.2.0">
-<script src="/static/app.js?v=0.2.0" type="module"></script>
+<link rel="stylesheet" href="/static/style.css?v=0.3.0-plus">
+<script src="/static/app.js?v=0.3.0-plus" type="module"></script>
 </head>
 <body>
 <div class="app-shell">
@@ -18,9 +18,9 @@
 <div class="sidebar-bottom"><button class="nav-icon" id="help-button" aria-label="Hướng dẫn" title="Hướng dẫn"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9 9a3 3 0 016 0c0 2-3 2-3 5m0 2v1"/></svg></button><div class="avatar" title="HN Studio">HN</div></div>
 </aside>
 <div class="workspace">
-<header class="topbar"><div class="wordmark">HN AI <strong>VOICE STUDIO</strong><span class="pro">PRO</span></div><div class="server-status"><span class="dot" id="server-dot"></span><span id="server-state">Đang kết nối</span></div></header>
+<header class="topbar"><div class="wordmark">HN AI <strong>VOICE STUDIO</strong><span class="pro">PRO PLUS</span></div><div class="server-status"><span class="dot" id="server-dot"></span><span id="server-state">Đang kết nối</span></div></header>
 <main>
-<div class="page-heading"><div><div class="eyebrow">YOUR VOICE. YOUR SIGNATURE.</div><h1>Phòng thu giọng nói</h1><p>Kéo thanh chỉnh. Nghe thay đổi ngay. Giữ trọn sắc thái giọng nói.</p></div><button class="button subtle" id="new-project">＋ Video mới</button></div>
+<div class="page-heading"><div><div class="eyebrow">YOUR VOICE. YOUR SIGNATURE.</div><h1>Phòng thu giọng nói <span class="plus-tag">PLUS</span></h1><p>Kéo thanh chỉnh. Nghe thay đổi ngay. Giữ trọn sắc thái giọng nói.</p></div><button class="button subtle" id="new-project">＋ Video mới</button></div>
 <div class="steps" aria-label="Các bước xử lý"><div class="step current" id="step-1"><span>01</span> Tải video</div><div class="step-line"></div><div class="step" id="step-2"><span>02</span> Chỉnh giọng</div><div class="step-line"></div><div class="step" id="step-3"><span>03</span> Xuất MP4</div><div class="step-tag">LIVE PREVIEW · CLOUD EXPORT</div></div>
 <div class="studio-grid">
 <section class="editor-panel">
@@ -40,8 +40,9 @@
 <div class="timeline" id="timeline"><canvas id="waveform" aria-label="Dạng sóng âm thanh gốc"></canvas><div id="loop-region" hidden></div><div id="playhead"></div><input id="seek" type="range" min="0" max="1" step="0.01" value="0" aria-label="Tua video"></div>
 <div class="timeline-footer"><span id="playback-note">Nghe thử trực tiếp</span><div class="loop-tools"><button id="mark-in" class="text-button">Đặt In</button><button id="mark-out" class="text-button">Đặt Out</button><button id="loop-button" class="text-button" aria-pressed="false">↻ Lặp đoạn</button></div></div>
 <div class="audio-analysis"><div class="spectrum-wrap"><canvas id="spectrum" aria-label="Phổ tần âm thanh đang phát"></canvas><span>PHỔ TẦN TRỰC TIẾP</span></div><div class="level-monitor"><div><span>PEAK</span><output id="peak-value">−∞ dBFS</output></div><div class="meter-track"><div id="peak-meter"></div></div><div><span>GIẢM NÉN</span><output id="reduction-value">0 dB</output></div></div></div>
+<div class="hq-actions"><button id="hq-button" class="button gold" disabled>◇ Nghe thử HQ 10 giây</button><button id="hq-open" class="button subtle" disabled>Mở HQ</button></div>
 <button id="compare-output" class="button subtle full" disabled>Xem MP4 đã xuất</button>
-<p class="preview-explainer">Nghe thử nhanh khi kéo thanh. Khử nhiễu chi tiết và cân âm LUFS được hoàn thiện khi xuất MP4.</p>
+<p class="preview-explainer">Kéo thanh để nghe nhanh. Công cụ có dấu ◇ chỉ nghe chính xác trong HQ và MP4. HQ dùng cùng bộ xử lý xuất và cân mức A/B.</p>
 </section>
 <div class="job-panel" id="job-panel" hidden><div class="job-heading"><div><span class="live-dot"></span><strong id="job-stage">Đang tải video</strong></div><span id="job-percent">0%</span></div><progress id="job-progress" max="100" value="0"></progress><div class="job-footer"><span id="job-note">Tiến độ được cập nhật từ máy chủ</span><button class="text-button" id="cancel-job">Hủy</button></div></div>
 <div class="notice" id="notice" role="status" hidden></div>
@@ -57,6 +58,8 @@
 <button class="preset" data-preset="bright"><span>✧</span><strong>Tươi sáng</strong><small>Tông cao</small></button>
 <button class="preset" data-preset="original"><span>◎</span><strong>Nguyên tông</strong><small>Không hiệu ứng</small></button>
 </div></div>
+<section class="assistant-card"><div class="assistant-heading"><strong>Trợ lý giọng nói</strong><span>PLUS</span></div><p>Đo âm lượng và độ chênh giữa các câu để chọn điểm bắt đầu.</p><button id="analyze-button" class="button subtle full" disabled>◎ Phân tích giọng</button><div id="analysis-result" hidden><div id="analysis-metrics"></div><p id="analysis-advice"></p><button id="apply-analysis" class="button subtle full">Áp dụng gợi ý nhẹ</button></div></section>
+<div class="personal-presets"><label for="saved-presets">Công thức giọng của tôi</label><div class="preset-select"><select id="saved-presets"><option value="">Chọn công thức đã lưu</option></select><button id="load-preset" class="button subtle">Dùng</button></div><div class="preset-actions"><button id="save-preset" class="text-button">＋ Lưu hiện tại</button><button id="export-preset" class="text-button">Xuất JSON</button><button id="import-preset" class="text-button">Nhập JSON</button><button id="delete-preset" class="text-button">Xóa</button></div><input id="preset-file" type="file" accept=".json,application/json" hidden></div>
 <div class="edit-actions"><button id="undo-settings" class="button subtle" title="Ctrl+Z" disabled>↶ Hoàn tác</button><button id="redo-settings" class="button subtle" title="Ctrl+Shift+Z" disabled>↷ Làm lại</button><button id="reset-settings" class="text-button">Đặt lại</button></div>
 <nav class="control-tabs" aria-label="Nhóm công cụ"><button data-group="voice" class="selected">Giọng</button><button data-group="eq">EQ</button><button data-group="dynamics">Dynamics</button><button data-group="space">Không gian</button></nav>
 <div id="pro-controls"></div>
@@ -65,15 +68,17 @@
 <button class="button gold full" id="render-button" disabled><svg viewBox="0 0 24 24"><path d="M4 10v4m4-8v12m4-16v20m4-16v12m4-8v4"/></svg>Xử lý giọng &amp; tạo MP4</button>
 <a class="button download full" id="download-button" aria-disabled="true"><svg viewBox="0 0 24 24"><path d="M12 3v12m-5-5l5 5 5-5M4 17v4h16v-4"/></svg>Tải MP4 đã xử lý</a>
 <p class="export-hint" id="export-hint">Chọn video để bắt đầu</p></div>
-<p class="engine-note">Hiệu ứng áp dụng lên toàn bộ âm thanh, gồm cả nhạc nền. Bản này chỉnh tông bằng DSP, chưa có mô hình AI đổi danh tính giọng.</p>
+<p class="engine-note">RNNoise dành cho lời nói; bật nhẹ để giữ tự nhiên. Hiệu ứng vẫn tác động cả nhạc có sẵn trong video. PLUS chưa tách riêng giọng / nhạc hoặc khử vang phòng bằng AI.</p>
 </aside>
 </div>
 <section class="projects-section" id="projects-section"><div class="section-heading"><h2>Video trong phiên</h2><span id="project-count">0 / 4</span></div><div id="project-list" class="project-list"><p class="empty-list">Các video bạn tải lên sẽ xuất hiện ở đây.</p></div></section>
-<footer class="workspace-footer"><span>HN AI VOICE STUDIO PRO <b>•</b> v0.2</span><span id="retention-note">Lưu tạm trên máy chủ · Không tự tải về thiết bị</span></footer>
+<footer class="workspace-footer"><span>HN AI VOICE STUDIO PRO <b>•</b> v0.3 PLUS</span><span id="retention-note">Lưu tạm trên máy chủ · Không tự tải về thiết bị</span></footer>
 </main>
 </div>
 </div>
 <dialog id="login-dialog"><form id="login-form"><div class="dialog-icon">HN</div><h2>Mở phòng thu của bạn</h2><p>Nhập mật khẩu truy cập đã đặt trên máy chủ.</p><label for="password">Mật khẩu</label><input id="password" type="password" autocomplete="current-password" required><p id="login-error" role="alert"></p><button class="button gold full" type="submit">Vào phòng thu</button></form></dialog>
-<dialog id="help-dialog"><button class="dialog-close icon-button" id="close-help" aria-label="Đóng">×</button><div class="eyebrow">HƯỚNG DẪN</div><h2>Từ video đến giọng mới</h2><ol><li>Chọn hoặc kéo video vào ô tải lên. Máy chủ sẽ chuẩn bị bản xem trước.</li><li>Bấm phát, chọn sắc thái và kéo thanh chỉnh để nghe ngay; khi hài lòng bấm <strong>Xử lý giọng &amp; tạo MP4</strong>.</li><li>So sánh <strong>A · Gốc / B · Nghe trực tiếp</strong> và tải MP4 khi hài lòng.</li></ol><p>Bấm phát video rồi kéo thanh chỉnh để nghe trực tiếp. A / B đổi giữa giọng gốc và giọng đang chỉnh mà không nạp lại video. Nhấp đúp thanh chỉnh để đặt lại; Ctrl+Z hoàn tác; Space phát/dừng. Đặt In / Out để nghe lặp một đoạn. Khử nhiễu chi tiết và cân âm LUFS được hoàn thiện trên server khi xuất. Hiệu ứng tác động cả lời nói và nhạc trong video.</p><p id="help-storage">File được lưu tạm trên máy chủ và có thể mất khi máy chủ khởi động lại. Hãy tải kết quả cần giữ trước khi file hết hạn.</p><p>Không lưu video vào IndexedDB hoặc localStorage. Trình duyệt vẫn cần bộ nhớ đệm khi phát video.</p></dialog>
+<dialog id="help-dialog"><button class="dialog-close icon-button" id="close-help" aria-label="Đóng">×</button><div class="eyebrow">HƯỚNG DẪN</div><h2>Từ video đến giọng mới</h2><ol><li>Chọn hoặc kéo video vào ô tải lên. Máy chủ sẽ chuẩn bị bản xem trước.</li><li>Bấm phát, chọn sắc thái và kéo thanh chỉnh để nghe ngay; khi hài lòng bấm <strong>Xử lý giọng &amp; tạo MP4</strong>.</li><li>So sánh <strong>A · Gốc / B · Nghe trực tiếp</strong> và tải MP4 khi hài lòng.</li></ol><p>Bấm phát video rồi kéo thanh chỉnh để nghe trực tiếp. A / B đổi giữa giọng gốc và giọng đang chỉnh mà không nạp lại video. Nhấp đúp thanh chỉnh để đặt lại; Ctrl+Z hoàn tác; Space phát/dừng. Đặt In / Out để nghe lặp một đoạn. Các công cụ ◇ (RNNoise, Formant, De-click) và giữ màu giọng được hoàn thiện trên máy chủ. Chọn Nghe thử HQ để nghe đúng bộ xử lý xuất. Auto Level, EQ, độ ấm và vang có bản nghe nhanh trực tiếp. Hiệu ứng tác động cả lời nói và nhạc trong video.</p><p id="help-storage">File được lưu tạm trên máy chủ và có thể mất khi máy chủ khởi động lại. Hãy tải kết quả cần giữ trước khi file hết hạn.</p><p>Không lưu video vào IndexedDB hoặc localStorage. Trình duyệt vẫn cần bộ nhớ đệm khi phát video.</p></dialog>
 <dialog id="output-dialog" class="output-dialog"><button class="dialog-close icon-button" id="close-output" aria-label="Đóng bản xuất">×</button><h2>MP4 đã xuất</h2><p id="output-settings-note">Bản hoàn thiện trên máy chủ.</p><video id="output-video" controls playsinline preload="metadata"></video></dialog>
+<dialog id="preset-dialog"><form id="preset-form"><h2>Lưu công thức giọng</h2><label for="preset-name">Tên công thức</label><input id="preset-name" maxlength="60" required placeholder="Ví dụ: Giọng kể chuyện của Nghĩa"><p>Chỉ lưu thông số trên trình duyệt này. Xuất JSON để giữ bản sao hoặc chuyển sang thiết bị khác.</p><div class="hq-actions"><button class="button gold" type="submit">Lưu công thức</button><button id="cancel-preset" class="button subtle" type="button">Hủy</button></div></form></dialog>
+<dialog id="hq-dialog"><button id="close-hq" class="dialog-close icon-button" aria-label="Đóng nghe thử HQ">×</button><div class="eyebrow">MASTER PREVIEW</div><h2>Nghe kỹ giọng của bạn</h2><p id="hq-details"></p><div class="segmented hq-ab"><button id="hq-a">A · Gốc</button><button id="hq-b" class="selected">B · Hoàn thiện</button></div><div class="hq-transport"><button id="hq-play" class="play-button">▶</button><input id="hq-seek" type="range" min="0" max="10" step="0.01" value="0" aria-label="Tua đoạn HQ"><output id="hq-time">0:00</output></div><p id="hq-message" role="status"></p><p>A/B được cân bằng mức RMS để so sánh chất giọng. Âm lượng file MP4 vẫn theo thông số xuất.</p></dialog>
 </body></html>

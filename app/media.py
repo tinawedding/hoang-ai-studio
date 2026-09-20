@@ -74,7 +74,7 @@ def validate_signature(path: Path):
         raise MediaError("Nội dung file không phải MP4, MOV, MKV, WEBM hoặc AVI hợp lệ.")
 
 
-def filter_audio(settings: dict, duration: float, audio_offset: float = 0) -> str:
+def filter_audio(settings: dict, duration: float, audio_offset: float = 0, finishing=True) -> str:
     chain = ["aresample=48000", "asetpts=PTS-STARTPTS"]
     if audio_offset < -0.001:
         chain.extend([f"atrim=start={-audio_offset:.6f}", "asetpts=PTS-STARTPTS"])
@@ -84,26 +84,43 @@ def filter_audio(settings: dict, duration: float, audio_offset: float = 0) -> st
         chain.append(f'lowpass=f={settings["lowpass_hz"]:.1f}')
     if settings["noise"] > 0:
         chain.append(f'afftdn=nr={settings["noise"]:.2f}:nf=-35:tn=1')
-    semitones = settings["pitch"]
-    if abs(semitones) > 0.001:
+    if settings["declick"] > 0:
+        chain.append(f'adeclick=w=25:o=50:a=2:t={10-settings["declick"]*.06:.3f}:b=2')
+    semitones, formant = settings["pitch"], settings["formant"]
+    if abs(semitones) > .001 or abs(formant) > .001:
+        # Resampling moves the spectral envelope. Rubber Band independently restores
+        # duration and sets fundamental pitch while preserving that new envelope.
         ratio = 2 ** (semitones / 12)
-        # Resample changes pitch; inverse tempo keeps video/audio duration aligned.
-        chain.extend([f"asetrate={round(48000 * ratio)}", "aresample=48000", f"atempo={1 / ratio:.8f}"])
+        envelope = 2 ** ((formant + (0 if settings["preserve_formants"] else semitones)) / 12)
+        if abs(envelope-1) > .00001:
+            rate = round(48000 * envelope)
+            envelope = rate / 48000
+            chain.extend([f"asetrate={rate}", "aresample=48000"])
+        chain.append(f"rubberband=tempo={1/envelope:.9f}:pitch={ratio/envelope:.9f}:formant=preserved:pitchq=quality:channels=together")
+    if settings["plosive"] > 0:
+        chain.append('adynamicequalizer=dfrequency=110:dftype=lowpass' + f':tfrequency=140:tftype=lowshelf:threshold=0.08:range={1+settings["plosive"]*.1:.2f}:ratio=3:attack=2:release=120:mode=cutabove:auto=disabled')
     if settings["gate"]:
         chain.append(f'agate=threshold={10 ** (settings["gate_threshold"] / 20):.8f}:ratio=4:range=0.01:attack=3:release={settings["gate_release"]:.1f}')
     if settings["deesser"] > 0:
         chain.append(f'deesser=i={settings["deesser"] / 100:.3f}:m=0.6:f=0.5')
+    if settings["auto_level"] > 0:
+        maximum = 10 ** (settings["auto_level"] * .09 / 20)
+        chain.append(f'dynaudnorm=f=250:g=9:p=0.8:m={maximum:.5f}:r={10**(settings["level_target"]/20):.6f}:t=0.006:n=1')
     for key, frequency in [("bass", 140), ("lowmid", 400), ("mid", settings["mid_hz"]), ("presence", 3000), ("treble", 6500)]:
         gain = settings[key]
         if abs(gain) > 0.001:
             q = settings["mid_q"] if key == "mid" else 0.8
             chain.append(f"equalizer=f={frequency}:t=q:w={q}:g={gain:.2f}")
+    if settings["harshness"] > 0:
+        hz = settings["harsh_hz"]
+        chain.append(f'adynamicequalizer=dfrequency={hz}:tfrequency={hz}:dqfactor=1:tqfactor=1:threshold={10**(settings["harsh_threshold"]/20):.6f}:range={1+settings["harshness"]*.08:.2f}:ratio=3:attack=8:release=140:mode=cutabove:auto=disabled')
     if settings["compress"]:
         chain.append(f'acompressor=threshold={10 ** (settings["threshold"] / 20):.8f}:ratio={settings["ratio"]:.2f}:attack={settings["attack"]:.1f}:release={settings["release"]:.1f}:makeup={10 ** (settings["makeup"] / 20):.6f}')
-    if settings["reverb"] > 0:
-        delays = "|".join(str(round(t * settings["room"])) for t in (13, 19, 29, 37, 53, 71, 89, 113))
-        decays = "|".join(f'{settings["reverb"] / 100 * w:.6f}' for w in (.22, .19, .16, .13, .10, .08, .07, .05))
-        chain.append(f'aecho=in_gain=1:out_gain=1:delays={delays}:decays={decays}')
+    if settings["warmth"] > 0:
+        drive = 1 + settings["warmth"] * .035
+        chain.extend([f'volume={drive:.6f}', f'asoftclip=type=tanh:output={1/drive:.6f}:oversample=2'])
+    if not finishing:
+        return ",".join(chain)
     if settings["normalize"]:
         chain.append(f'loudnorm=I={settings["target_lufs"]:.1f}:TP={settings["ceiling"]:.1f}:LRA=11')
     if abs(settings["gain"]) > 0.001:
@@ -214,21 +231,22 @@ async def prepare(project: dict, job: dict):
 
 
 async def render(project: dict, job: dict, settings: dict):
+    from .mastering import master
     folder = Path(project["folder"])
     duration = project["meta"]["duration"]
     if not project["meta"]["has_audio"]:
         raise MediaError("Video này không có âm thanh để đổi giọng.")
     pending = folder / f"{job['id']}.part.mp4"
     destination = folder / "output.mp4"
+    audio = await master(project, job, settings)
     job["stage"] = "Đang xử lý giọng và ghép MP4"
     await run_ffmpeg([
-        *INPUT_FLAGS, "-i", str(folder / "source"), "-map", "0:v:0", "-map", "0:a:0",
+        *INPUT_FLAGS, "-i", str(folder / "source"), "-i", str(audio), "-map", "0:v:0", "-map", "1:a:0",
         "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1,setpts=PTS-STARTPTS",
-        "-af", filter_audio(settings, duration, project["meta"].get("audio_offset", 0)),
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p",
         "-threads", "2", "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
         "-t", str(duration), "-map_metadata", "-1", "-movflags", "+faststart", str(pending),
-    ], job, duration, folder / "render.log", span=94)
+    ], job, duration, folder / "render.log", base=80, span=14)
     job["stage"] = "Đang kiểm tra file xuất"
     try:
         result = await asyncio.to_thread(probe, pending)

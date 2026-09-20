@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
-from . import media
+from . import media, mastering
 from .settings import DEFAULTS, LIMITS, editor_schema
 
 ROOT = Path(__file__).resolve().parent
@@ -54,6 +54,10 @@ async def worker():
             job.update(state="running", progress=0)
             if job["kind"] == "prepare":
                 await media.prepare(project, job)
+            elif job["kind"] == "analyze":
+                await mastering.analyze(project, job)
+            elif job["kind"] == "audition":
+                await mastering.audition(project, job, settings)
             else:
                 await media.render(project, job, settings)
             job.update(state="done", progress=100, stage="Hoàn tất")
@@ -105,7 +109,7 @@ async def lifespan(app):
     await asyncio.gather(*tasks, return_exceptions=True)
 
 
-app = FastAPI(title="HN AI Voice Studio Pro", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+app = FastAPI(title="HN AI Voice Studio Pro PLUS", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
 
 
 def owner(request: Request) -> str:
@@ -150,16 +154,16 @@ async def index():
 
 @app.get("/healthz")
 async def health():
-    return {"status": "ok", "engine": "ffmpeg-dsp", "ai_voice_conversion": False}
+    return {"status": "ok", "version": "0.3.0-plus", "engine": "ffmpeg-rnnoise-rubberband", "ai_voice_conversion": False}
 
 
 @app.get("/api/config")
 async def config():
-    return {"name": "HN AI VOICE STUDIO PRO", "version": "0.2.0",
+    return {"name": "HN AI VOICE STUDIO PRO PLUS", "version": "0.3.0-plus",
             "max_upload_mb": MAX_UPLOAD // 1024 // 1024, "max_minutes": media.MAX_SECONDS // 60,
             "retention_seconds": TTL, "password_required": bool(ACCESS_KEY),
             "defaults": DEFAULTS, "controls": editor_schema(), "storage": "temporary-server",
-            "ai_voice_conversion": False}
+            "ai_voice_conversion": False, "capabilities": mastering.capabilities()}
 
 
 async def small_json(request: Request):
@@ -210,7 +214,7 @@ def find_project(project_id, request):
 
 def view_project(project):
     return {key: project.get(key) for key in ("id", "name", "size", "created_at", "expires_at",
-                                             "state", "meta", "job_id", "output")}
+                                             "state", "meta", "job_id", "output", "analysis", "audition")}
 
 
 def new_job(project, kind):
@@ -305,6 +309,8 @@ def validate_settings(data):
 async def render_video(project_id: str, request: Request):
     project = find_project(project_id, request)
     settings = validate_settings(await small_json(request))
+    if settings["ai_noise"] > 0 and not mastering.MODEL.is_file():
+        raise HTTPException(503, "Mô hình RNNoise chưa sẵn sàng.")
     if project["state"] not in {"ready", "done"}:
         raise HTTPException(409, "Video cần chuẩn bị xong trước khi xử lý.")
     if not project["meta"]["has_audio"]:
@@ -314,6 +320,40 @@ async def render_video(project_id: str, request: Request):
     # There are no await points between the state check and queue insertion.
     job = new_job(project, "render")
     QUEUE.put_nowait((job, settings))
+    return {"job": job}
+
+
+@app.post("/api/projects/{project_id}/analyze", status_code=202)
+async def analyze_video(project_id: str, request: Request):
+    project = find_project(project_id, request)
+    ensure_audio_ready(project)
+    job = new_job(project, "analyze")
+    QUEUE.put_nowait((job, None))
+    return {"job": job}
+
+
+def ensure_audio_ready(project):
+    if project["state"] not in {"ready", "done"}:
+        raise HTTPException(409, "Chờ lượt xử lý hiện tại hoàn tất.")
+    if not project["meta"]["has_audio"]:
+        raise HTTPException(422, "Video không có âm thanh.")
+    if QUEUE.full():
+        raise HTTPException(429, "Máy chủ đang bận. Hãy thử lại sau.")
+
+
+@app.post("/api/projects/{project_id}/audition", status_code=202)
+async def audition_video(project_id: str, request: Request):
+    project = find_project(project_id, request)
+    data = await small_json(request)
+    if set(data) != {"start", "settings"} or not isinstance(data["settings"], dict):
+        raise HTTPException(422, "Đoạn nghe thử chưa hợp lệ.")
+    start = data["start"]
+    if isinstance(start, bool) or not isinstance(start, (int, float)) or not math.isfinite(start) or not 0 <= start <= max(0, project.get("meta", {}).get("duration", 0)-.1):
+        raise HTTPException(422, "Điểm bắt đầu nghe thử ngoài video.")
+    settings = validate_settings(data["settings"])
+    ensure_audio_ready(project)
+    job = new_job(project, "audition")
+    QUEUE.put_nowait((job, {"start":start, "settings":settings}))
     return {"job": job}
 
 
@@ -351,6 +391,14 @@ async def delete_video(project_id: str, request: Request):
 @app.get("/api/projects/{project_id}/media/{kind}")
 async def serve_media(project_id: str, kind: str, request: Request, download: bool = False):
     project = find_project(project_id, request)
+    if kind in {"hq-a", "hq-b"}:
+        audition = project.get("audition")
+        if not audition:
+            raise HTTPException(404, "Chưa có đoạn nghe thử HQ.")
+        path = Path(project["folder"]) / f"{kind}.{audition['job_id']}.wav"
+        if not path.exists():
+            raise HTTPException(404, "Đoạn nghe thử đã hết hạn.")
+        return FileResponse(path, media_type="audio/wav")
     if kind not in {"preview", "output"}:
         raise HTTPException(404, "Không tìm thấy video.")
     path = Path(project["folder"]) / f"{kind}.mp4"

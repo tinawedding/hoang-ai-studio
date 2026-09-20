@@ -17,10 +17,12 @@ jobs:
           cache: pip
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
+      - name: Fetch verified original RNNoise model
+        run: python scripts/fetch_model.py
       - name: Verify Python syntax
         run: python -m compileall -q app tests
       - name: Process real videos and verify output
-        run: python -m pytest tests/test_pipeline.py -v --junitxml=test-artifacts/pipeline.xml
+        run: python -m pytest tests/test_pipeline.py tests/test_plus.py -v --junitxml=test-artifacts/pipeline.xml
       - name: Install browser
         run: python -m playwright install --with-deps chromium
       - name: Verify browser upload, rendering, download and layout
