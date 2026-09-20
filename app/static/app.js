@@ -1,8 +1,9 @@
 "use strict";
 import { buildControls, StudioEditor } from "./studio-editor.js";
+import { PlusStudio } from "./plus-studio.js";
 const $ = (id) => document.getElementById(id);
 let numeric = [];
-const toggles = ["highpass", "compress", "normalize", "gate"];
+const toggles = ["highpass", "compress", "normalize", "gate", "preserve_formants"];
 let config, current = null, currentJob = null, uploading = null, watchVersion = 0, projects = [];
 let busy = false, online = false;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -68,6 +69,9 @@ function paintActions() {
   $("undo-settings").disabled = historyIndex < 1;
   $("redo-settings").disabled = historyIndex >= settingsHistory.length - 1;
   $("render-button").disabled = !ready || busy || !online;
+  $("hq-button").disabled = !ready || busy || !online;
+  $("analyze-button").disabled = !ready || busy || !online;
+  $("hq-open").disabled = !current?.audition || busy;
   $("new-project").disabled = !!uploading;
   $("choose-file").disabled = !config || !online || !!uploading;
   const canDownload = !!current?.output && !dirty() && !busy;
@@ -144,6 +148,7 @@ function updateMediaDetails() {
     ? " · " + current.meta.width + " × " + current.meta.height + " · " + duration(current.meta.duration) + " · " + (current.meta.has_audio ? current.meta.audio_codec.toUpperCase() : "Không âm thanh")
     : " · Đang đọc thông tin trên máy chủ");
   $("video-label").textContent = current.meta ? current.meta.video_codec.toUpperCase() + " · VIDEO" : "ĐANG CHUẨN BỊ";
+  plus?.showAnalysis(current.analysis);
 }
 function switchMedia(kind = "preview") {
   if (!current) return;
@@ -219,7 +224,10 @@ async function watchJob(jobId, version) {
         if (job.state === "done") {
           $("job-panel").hidden = true;
           if (job.kind === "prepare") switchMedia("preview");
+          if (job.kind === "audition") plus.openHQ(current, settings()).catch(showError);
           notice(job.kind === "render" ? "MP4 đã được kiểm tra và sẵn sàng. Bạn có thể nghe so sánh rồi tải về."
+            : job.kind === "audition" ? "Đoạn nghe thử HQ đã sẵn sàng."
+            : job.kind === "analyze" ? "Đã đo xong. Xem kết quả trong Trợ lý giọng nói."
             : current.meta.has_audio ? "Video đã sẵn sàng. Bấm phát rồi kéo thanh chỉnh để nghe ngay."
             : "Video phát được nhưng không có âm thanh để đổi giọng.", job.kind === "render" ? "success" : "");
         } else if (job.state === "error") {
@@ -251,6 +259,7 @@ function resetEditor() {
   watchVersion++;
   current = null; currentJob = null; busy = false;
   studio.setProject(null);
+  plus.showAnalysis(null);
   $("video").pause(); $("video").removeAttribute("src"); $("video").load();
   $("video-wrap").hidden = true; $("drop-zone").hidden = false;
   $("comparison").hidden = true; $("media-details").hidden = true;
@@ -323,6 +332,15 @@ async function beginRender() {
     busy = false; showError(error); paintActions();
   }
 }
+async function beginPlus(kind) {
+  if (!current || busy) return;
+  notice(); busy=true; paintActions();
+  try {
+    const payload=kind==='audition'?{start:Math.max(0,Math.min($("video").currentTime,current.meta.duration-.1)),settings:settings()}:{};
+    const data=await post(`/api/projects/${current.id}/${kind}`,payload);
+    watchVersion++;watchJob(data.job.id,watchVersion);
+  } catch(error){busy=false;showError(error);paintActions();}
+}
 function showError(error) { notice(error.message || String(error), "error"); }
 
 $("choose-file").addEventListener("click", () => $("file-input").click());
@@ -354,15 +372,18 @@ function bindEditControls() {
 }
 document.querySelectorAll("[data-preset]").forEach((button) => button.addEventListener("click", () => {
   const presets = {
-    clean: {...config.defaults, mid: 1.5, treble: 1},
-    deep: {...config.defaults, pitch: -3, bass: 3, mid: .5, treble: -1},
-    bright: {...config.defaults, pitch: 3, bass: -1.5, mid: 1, treble: 2},
+    clean: {...config.defaults, mid: 1.5, treble: 1, auto_level:35, harshness:20, deesser:20},
+    deep: {...config.defaults, pitch: -2, formant:-.5, bass: 2, mid: .5, treble: -1, auto_level:35, warmth:25},
+    bright: {...config.defaults, pitch: 2, formant:.5, bass: -1.5, mid: 1, treble: 1.5, auto_level:30, harshness:20},
     original: {...config.defaults, pitch: 0, noise: 0, highpass: false, compress: false, normalize: false, gate: false},
   };
   clearPreset(); button.classList.add("selected"); applySettings(presets[button.dataset.preset]);
 }));
 $("reset-settings").addEventListener("click", () => { clearPreset(); applySettings(config.defaults); });
 $("render-button").addEventListener("click", beginRender);
+$("analyze-button").addEventListener("click",()=>beginPlus('analyze'));
+$("hq-button").addEventListener("click",()=>beginPlus('audition'));
+$("hq-open").addEventListener("click",()=>plus.openHQ(current,settings()).catch(showError));
 
 $("compare-output").addEventListener("click", () => studio.openOutput(current, dirty()));
 $("undo-settings").addEventListener("click", () => undoSettings(-1));
@@ -407,6 +428,7 @@ async function init() {
     numeric = config.controls.map((item) => item.id);
     units = Object.fromEntries(config.controls.map((item) => [item.id, item.unit]));
     buildControls(config); bindEditControls();
+    plus.configure(config);
     await api("/healthz");
     online = true;
     $("server-dot").className = "dot online";
@@ -429,4 +451,5 @@ async function init() {
   paintActions();
 }
 const studio = new StudioEditor(showError);
+const plus = new PlusStudio({getSettings:settings, apply:value=>{clearPreset();applySettings(value);}, onError:showError, studio});
 init();

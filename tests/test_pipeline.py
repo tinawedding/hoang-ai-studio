@@ -20,13 +20,6 @@ ARTIFACTS.mkdir(exist_ok=True)
 
 
 @pytest.fixture(scope="module")
-def client():
-    with TestClient(app) as instance:
-        assert instance.post("/api/session", json={"password": "test-password-only"}).status_code == 200
-        yield instance
-
-
-@pytest.fixture(scope="module")
 def video(tmp_path_factory):
     return make_video(tmp_path_factory.mktemp("media") / "unsupported-browser.mkv")
 
@@ -195,7 +188,7 @@ def test_advanced_voice_chain_and_gate_are_audible(client, video, tmp_path):
     """Decode the new complete chain; verify Gate suppresses sound, not just a UI value."""
     pid = wait(client, upload(client, video)["job"]["id"])["project"]["id"]
     config = client.get("/api/config").json()
-    assert len(config["controls"]) == 25
+    assert len(config["controls"]) == 39
     effect = {**config["defaults"], "pitch": 3, "deesser": 40, "lowpass_hz": 14000,
               "lowmid": -2, "mid": 2, "mid_hz": 1600, "mid_q": 1.2, "presence": 1,
               "threshold": -24, "ratio": 4, "attack": 8, "release": 250, "makeup": 2,

@@ -43,6 +43,7 @@ export class LiveAudio {
     await Promise.all([
       SoundTouchNode.register(this.ctx, '/static/vendor/soundtouch/soundtouch-processor.js'),
       this.ctx.audioWorklet.addModule('/static/clean-processor.js'),
+      this.ctx.audioWorklet.addModule('/static/plus-processor.js'),
     ]);
     const ctx = this.ctx;
     this.hp = ctx.createBiquadFilter(); this.hp.type = 'highpass'; this.hp.Q.value = .707;
@@ -55,20 +56,30 @@ export class LiveAudio {
     });
     this.compressor = ctx.createDynamicsCompressor(); this.compressor.knee.value = 6;
     this.makeup = ctx.createGain(); this.roomSum = ctx.createGain(); this.output = ctx.createGain();
+    this.plus = new AudioWorkletNode(ctx,'hn-plus',{outputChannelCount:[2]});
+    this.roomWet = ctx.createGain(); this.roomWet.gain.value=0;
+    this.duck = new AudioWorkletNode(ctx,'hn-duck',{numberOfInputs:2,outputChannelCount:[2]});
+    this.duck.connect(this.roomWet).connect(this.roomSum);
+    this.makeup.connect(this.duck,0,1);
+    this.roomWorker = new Worker('/static/room-worker.js'); this.roomGeneration=0;
+    this.roomWorker.onmessage=({data})=>{
+      if(data.id!==this.roomGeneration)return;
+      const buffer=ctx.createBuffer(2,new Float32Array(data.channels[0]).length,ctx.sampleRate);
+      for(let ch=0;ch<2;ch++)buffer.copyToChannel(new Float32Array(data.channels[ch]),ch);
+      const convolver=ctx.createConvolver(), gain=ctx.createGain();convolver.normalize=false;convolver.buffer=buffer;gain.gain.value=0;
+      this.makeup.connect(convolver).connect(gain).connect(this.duck);
+      this.ramp(gain.gain,1,.04);
+      const old=this.roomNode;this.roomNode={convolver,gain};
+      if(old){this.ramp(old.gain.gain,0,.04);setTimeout(()=>{this.makeup.disconnect(old.convolver);old.convolver.disconnect();old.gain.disconnect();this.last.delete(old.gain.gain);},250);}
+    };
     this.limiter = ctx.createDynamicsCompressor();
     this.limiter.knee.value = 0; this.limiter.ratio.value = 20;
     this.limiter.attack.value = .003; this.limiter.release.value = .08;
     this.fade = ctx.createGain();
-    const chain = [this.source, this.hp, this.lp, this.cleaner, this.pitch, ...this.eq,
+    const chain = [this.source, this.hp, this.lp, this.cleaner, this.pitch, ...this.eq, this.plus,
       this.compressor, this.makeup, this.roomSum, this.output, this.limiter, this.fade, this.wet];
     for (let i = 1; i < chain.length; i++) chain[i-1].connect(chain[i]);
-    this.echoes = taps.map((time, i) => {
-      const delay = ctx.createDelay(.5), gain = ctx.createGain();
-      delay.delayTime.value = time / 1000; gain.gain.value = 0;
-      this.makeup.connect(delay).connect(gain).connect(this.roomSum);
-      return {delay, gain, weight:weights[i], time};
-    });
-    for (const node of [this.pitch, this.cleaner]) node.onprocessorerror = () => {
+    for (const node of [this.pitch, this.cleaner, this.plus, this.duck]) node.onprocessorerror = () => {
       this.ready = false; this.ramp(this.wet.gain, 0); this.ramp(this.dry.gain, 1);
       this.onState('unavailable');
     };
@@ -100,10 +111,14 @@ export class LiveAudio {
     this.ramp(this.compressor.attack, s.attack / 1000);
     this.ramp(this.compressor.release, s.release / 1000);
     this.ramp(this.makeup.gain, s.compress ? db(s.makeup) : 1);
-    this.echoes.forEach(({delay, gain, weight, time}) => {
-      this.ramp(delay.delayTime, time * s.room / 1000, .04);
-      this.ramp(gain.gain, s.reverb / 100 * weight);
-    });
+    for(const key of ['auto_level','level_target','harshness','harsh_hz','harsh_threshold','warmth','plosive'])this.ramp(this.plus.parameters.get(key),s[key]);
+    this.ramp(this.roomWet.gain,s.reverb/100);
+    this.ramp(this.duck.parameters.get('amount'),s.reverb_duck/100);
+    const roomKey=[s.room,s.decay,s.predelay,s.damping].join(':');
+    if(s.reverb>0 && this.roomKey!==roomKey){
+      this.roomKey=roomKey;clearTimeout(this.roomTimer);this.roomGeneration++;
+      this.roomTimer=setTimeout(()=>this.roomWorker.postMessage({id:this.roomGeneration,s:this.settings,sr:this.ctx.sampleRate}),180);
+    }
     this.ramp(this.output.gain, db(s.gain)); this.ramp(this.limiter.threshold, s.ceiling);
     this.tick();
   }
@@ -121,6 +136,7 @@ export class LiveAudio {
   reset() {
     if (!this.ready) return;
     this.pitch.port.postMessage({type:'reset'}); this.cleaner.port.postMessage({type:'reset'});
+    this.plus.port.postMessage({type:'reset'});
     this.tick();
   }
   tick() {

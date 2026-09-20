@@ -4,7 +4,7 @@ const clock = (value) => `${Math.floor((value || 0) / 60)}:${String(Math.floor((
 
 export function buildControls(config) {
   const groups = {voice:'Giọng & độ sạch', eq:'Equalizer · 5 dải', dynamics:'Compressor & Gate', space:'Không gian & đầu ra', master:'Hoàn thiện khi xuất'};
-  const toggleGroups = {voice:[['highpass','Bật lọc tiếng ù']], dynamics:[['compress','Bật Compressor'],['gate','Bật Noise Gate']], master:[['normalize','Cân âm LUFS khi xuất']]};
+  const toggleGroups = {voice:[['highpass','Bật lọc tiếng ù'],['preserve_formants','Giữ màu giọng khi đổi cao độ ◇ HQ']], dynamics:[['compress','Bật Compressor'],['gate','Bật Noise Gate']], master:[['normalize','Cân âm LUFS khi xuất']]};
   const root = $('pro-controls'); root.replaceChildren();
   for (const [group, title] of Object.entries(groups)) {
     const section = document.createElement('section'); section.dataset.panel = group;

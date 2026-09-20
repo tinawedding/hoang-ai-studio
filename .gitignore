@@ -5,3 +5,4 @@ __pycache__/
 data/
 test-artifacts/
 *.pyc
+app/models/*.rnnn
